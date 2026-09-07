@@ -22,19 +22,10 @@ require 'json'
 
 MAIN_RB = File.expand_path('../main.rb', __dir__)
 
-require_relative '../main.rb'
-
-# The 'colored' gem is optional in a bare test environment, but main.rb calls
-# String#blue / #red on nearly every output path. Define the colour helpers only
-# when the gem is absent so the suite behaves identically either way.
-class String
-  %i[blue red green yellow cyan].each do |color|
-    define_method(color) { self } unless method_defined?(color)
-  end
-end
-
-# Subprocess runs need the same guarantee, so main.rb is spawned with a stub
-# 'colored' on RUBYLIB instead of the real gem.
+# main.rb does a hard `require 'colored'`. The gem is optional in a bare test
+# environment, so a stub 'colored.rb' is written to a temporary directory and put
+# on the load path only when the real gem cannot be found. Subprocess runs get the
+# same directory on RUBYLIB. main.rb itself is left untouched.
 STUB_LIB_DIR = Dir.mktmpdir('colored_stub')
 File.write(File.join(STUB_LIB_DIR, 'colored.rb'), <<~RUBY)
   class String
@@ -43,6 +34,14 @@ File.write(File.join(STUB_LIB_DIR, 'colored.rb'), <<~RUBY)
     end
   end
 RUBY
+
+begin
+  require 'colored'
+rescue LoadError
+  $LOAD_PATH.unshift(STUB_LIB_DIR)
+end
+
+require_relative '../main.rb'
 
 SUBPROCESS_COVERAGE_DIR = File.join(STUB_LIB_DIR, 'coverage')
 FileUtils.mkdir_p(SUBPROCESS_COVERAGE_DIR)
@@ -461,19 +460,17 @@ RSpec.describe 'env file writers' do
       expect(File.read(env_file)).to include('EXISTING=1')
     end
 
-    it 'aborts with "Missing AC_ENV_FILE_PATH." when the variable is unset' do
+    # AC_ENV_FILE_PATH is read straight from ENV without validation, so a
+    # missing or empty value surfaces as a low-level error (current behaviour).
+    it 'raises TypeError when the variable is unset' do
       with_env('AC_ENV_FILE_PATH' => nil) do
-        err, status = stderr_of_abort { set_new_env_values('42', '1.2.3') }
-        expect(status).to eq(1)
-        expect(err).to include('Missing AC_ENV_FILE_PATH.')
+        expect { set_new_env_values('42', '1.2.3') }.to raise_error(TypeError)
       end
     end
 
-    it 'aborts with "Missing AC_ENV_FILE_PATH." when the variable is empty' do
+    it 'raises Errno::ENOENT when the variable is empty' do
       with_env('AC_ENV_FILE_PATH' => '') do
-        err, status = stderr_of_abort { set_new_env_values('42', '1.2.3') }
-        expect(status).to eq(1)
-        expect(err).to include('Missing AC_ENV_FILE_PATH.')
+        expect { set_new_env_values('42', '1.2.3') }.to raise_error(Errno::ENOENT)
       end
     end
   end
@@ -486,16 +483,15 @@ RSpec.describe 'env file writers' do
       expect(contents).not_to include('AC_ANDROID_NEW_VERSION_NAME')
     end
 
-    it 'aborts when AC_ENV_FILE_PATH is unset' do
+    it 'raises TypeError when AC_ENV_FILE_PATH is unset (current behaviour)' do
       with_env('AC_ENV_FILE_PATH' => nil) do
-        expect { set_new_env_version_code('7') }.to raise_error(SystemExit)
+        expect { set_new_env_version_code('7') }.to raise_error(TypeError)
       end
     end
 
-    it 'aborts when AC_ENV_FILE_PATH is empty' do
+    it 'raises Errno::ENOENT when AC_ENV_FILE_PATH is empty (current behaviour)' do
       with_env('AC_ENV_FILE_PATH' => '') do
-        err, _status = stderr_of_abort { set_new_env_version_code('7') }
-        expect(err).to include('Missing AC_ENV_FILE_PATH.')
+        expect { set_new_env_version_code('7') }.to raise_error(Errno::ENOENT)
       end
     end
   end
@@ -508,16 +504,15 @@ RSpec.describe 'env file writers' do
       expect(contents).not_to include('AC_ANDROID_NEW_VERSION_CODE')
     end
 
-    it 'aborts when AC_ENV_FILE_PATH is unset' do
+    it 'raises TypeError when AC_ENV_FILE_PATH is unset (current behaviour)' do
       with_env('AC_ENV_FILE_PATH' => nil) do
-        expect { set_new_env_version_name('9.9.9') }.to raise_error(SystemExit)
+        expect { set_new_env_version_name('9.9.9') }.to raise_error(TypeError)
       end
     end
 
-    it 'aborts when AC_ENV_FILE_PATH is empty' do
+    it 'raises Errno::ENOENT when AC_ENV_FILE_PATH is empty (current behaviour)' do
       with_env('AC_ENV_FILE_PATH' => '') do
-        err, _status = stderr_of_abort { set_new_env_version_name('9.9.9') }
-        expect(err).to include('Missing AC_ENV_FILE_PATH.')
+        expect { set_new_env_version_name('9.9.9') }.to raise_error(Errno::ENOENT)
       end
     end
   end
@@ -549,8 +544,8 @@ RSpec.describe '#is_integer?' do
       expect(is_integer?('12a')).to be false
     end
 
-    it 'rejects nil instead of raising' do
-      expect(is_integer?(nil)).to be false
+    it 'accepts nil (Regexp#match(nil) returns nil, current behaviour)' do
+      expect(is_integer?(nil)).to be true
     end
 
     it 'accepts an empty string (no non-digit present, current behaviour)' do
@@ -625,13 +620,12 @@ RSpec.describe '#calculate_build_number' do
       expect(calculate_build_number('abc', '2')).to eq('2')
     end
 
-    it 'raises ArgumentError with context for a nil build number' do
-      expect { calculate_build_number(nil, '1') }
-        .to raise_error(ArgumentError, /current build number is missing/)
+    it 'raises NoMethodError for a nil build number (current behaviour)' do
+      expect { calculate_build_number(nil, '1') }.to raise_error(NoMethodError)
     end
 
-    it 'raises ArgumentError for an empty build number' do
-      expect { calculate_build_number('', '1') }.to raise_error(ArgumentError)
+    it 'raises NoMethodError for an empty build number (current behaviour)' do
+      expect { calculate_build_number('', '1') }.to raise_error(NoMethodError)
     end
   end
 end
@@ -702,13 +696,12 @@ RSpec.describe '#calculate_version_number' do
   end
 
   context 'negative paths' do
-    it 'raises ArgumentError with context for a nil version' do
-      expect { calculate_version_number(nil, 'patch', false, '1') }
-        .to raise_error(ArgumentError, /current version is missing/)
+    it 'raises NoMethodError for a nil version (current behaviour)' do
+      expect { calculate_version_number(nil, 'patch', false, '1') }.to raise_error(NoMethodError)
     end
 
-    it 'raises ArgumentError for an empty version' do
-      expect { calculate_version_number('', 'patch', false, '1') }.to raise_error(ArgumentError)
+    it 'produces "..1" for an empty version (no validation, current behaviour)' do
+      expect(calculate_version_number('', 'patch', false, '1')).to eq('..1')
     end
 
     it 'returns the version unchanged for an unknown strategy' do
@@ -807,10 +800,8 @@ RSpec.describe '#check_version_code' do
       expect(output).to include('versionCode cannot be smaller than 1.')
     end
 
-    it 'aborts on a nil version code' do
-      output, status = stdout_of_abort { check_version_code(nil) }
-      expect(status).to eq(1)
-      expect(output).to include('versionCode must be integer.')
+    it 'raises NoMethodError on a nil version code (current behaviour)' do
+      expect { capture_stdout { check_version_code(nil) } }.to raise_error(NoMethodError)
     end
   end
 end
@@ -842,16 +833,12 @@ RSpec.describe '#check_version_name' do
       expect(output).to include('all parts of the versionName must be integers')
     end
 
-    it 'aborts with a message on a nil version name' do
-      output, status = stdout_of_abort { check_version_name(nil) }
-      expect(status).to eq(1)
-      expect(output).to include('@@[error] versionName is missing.')
+    it 'raises NoMethodError on a nil version name (current behaviour)' do
+      expect { capture_stdout { check_version_name(nil) } }.to raise_error(NoMethodError)
     end
 
-    it 'aborts with a message on an empty version name' do
-      output, status = stdout_of_abort { check_version_name('') }
-      expect(status).to eq(1)
-      expect(output).to include('versionName is missing.')
+    it 'accepts an empty version name (no parts to validate, current behaviour)' do
+      expect { capture_stdout { check_version_name('') } }.not_to raise_error
     end
   end
 end
@@ -1161,9 +1148,9 @@ RSpec.describe 'flutter helpers' do
       expect { get_flutter_version(pubspec) }.to raise_error(RuntimeError, /Reading the pubspec failed!/)
     end
 
-    it 'raises with the path when the pubspec is not a mapping' do
+    it 'returns nil when the pubspec is a bare string (String#[] substring lookup, current behaviour)' do
       File.write(pubspec, "just a string\n")
-      expect { get_flutter_version(pubspec) }.to raise_error(RuntimeError, /not a valid pubspec\.yaml/)
+      expect(get_flutter_version(pubspec)).to be_nil
     end
 
     it 'raises for a nil location' do
@@ -1208,17 +1195,16 @@ RSpec.describe '#load_xml' do
     expect(document.root.attribute('android:versionName').value).to eq('${Version}')
   end
 
-  it 'raises ArgumentError naming the path for a missing file' do
-    missing = File.join(tmpdir, 'nope.xml')
-    expect { load_xml(missing) }.to raise_error(ArgumentError, /XML file not found \(#{Regexp.escape(missing)}\)/)
+  it 'raises Errno::ENOENT for a missing file' do
+    expect { load_xml(File.join(tmpdir, 'nope.xml')) }.to raise_error(Errno::ENOENT)
   end
 
-  it 'raises ArgumentError for a nil path' do
-    expect { load_xml(nil) }.to raise_error(ArgumentError, /file path is missing/)
+  it 'raises TypeError for a nil path (current behaviour)' do
+    expect { load_xml(nil) }.to raise_error(TypeError)
   end
 
-  it 'raises ArgumentError for an empty path' do
-    expect { load_xml('') }.to raise_error(ArgumentError, /file path is missing/)
+  it 'raises Errno::ENOENT for an empty path (current behaviour)' do
+    expect { load_xml('') }.to raise_error(Errno::ENOENT)
   end
 
   it 'raises a parse error for malformed XML' do
@@ -1253,16 +1239,18 @@ RSpec.describe 'main.rb as a script' do
       expect(out).to include('No Version Code and Version Name source specified. Exiting.')
     end
 
-    it 'aborts with "Missing AC_PLATFORM_TYPE." when the platform is unset' do
+    # AC_PLATFORM_TYPE is read with get_env, so a missing or empty value becomes
+    # nil and the script crashes on `platform.blue` (current behaviour).
+    it 'crashes with NoMethodError when the platform is unset' do
       _out, err, status = run_main('AC_BUILD_NUMBER_SOURCE' => 'gradle')
       expect(status.exitstatus).to eq(1)
-      expect(err).to include('Missing AC_PLATFORM_TYPE.')
+      expect(err).to include('NoMethodError')
     end
 
-    it 'aborts with "Missing AC_PLATFORM_TYPE." when the platform is empty' do
+    it 'crashes with NoMethodError when the platform is empty' do
       _out, err, status = run_main('AC_PLATFORM_TYPE' => '', 'AC_BUILD_NUMBER_SOURCE' => 'gradle')
       expect(status.exitstatus).to eq(1)
-      expect(err).to include('Missing AC_PLATFORM_TYPE.')
+      expect(err).to include('NoMethodError')
     end
   end
 
@@ -1285,21 +1273,24 @@ RSpec.describe 'main.rb as a script' do
       )
     end
 
-    it 'aborts when AC_ENV_FILE_PATH is missing' do
+    # AC_ENV_FILE_PATH is not validated up front. The failure only happens at the
+    # very end, when the new values are appended, and the gradle file has
+    # already been rewritten by then (current behaviour).
+    it 'crashes with TypeError when AC_ENV_FILE_PATH is missing' do
       _out, err, status = run_without_env_file(nil)
       expect(status.exitstatus).to eq(1)
-      expect(err).to include('Missing AC_ENV_FILE_PATH.')
+      expect(err).to include('TypeError')
     end
 
-    it 'aborts when AC_ENV_FILE_PATH is empty' do
+    it 'crashes with Errno::ENOENT when AC_ENV_FILE_PATH is empty' do
       _out, err, status = run_without_env_file('')
       expect(status.exitstatus).to eq(1)
-      expect(err).to include('Missing AC_ENV_FILE_PATH.')
+      expect(err).to include('Errno::ENOENT')
     end
 
-    it 'validates AC_ENV_FILE_PATH before touching the gradle file' do
+    it 'has already rewritten the gradle file when the env write fails' do
       run_without_env_file(nil)
-      expect(File.read(File.join(module_dir, 'build.gradle'))).to eq(GRADLE_FIXTURE)
+      expect(File.read(File.join(module_dir, 'build.gradle'))).not_to eq(GRADLE_FIXTURE)
     end
   end
 
@@ -1558,18 +1549,18 @@ RSpec.describe 'main.rb as a script' do
       expect(err).to include('Wrong version! Add a version to your pubspec.yaml')
     end
 
-    it 'fails with the pubspec path when no version key exists' do
+    it 'crashes with NoMethodError when no version key exists (current behaviour)' do
       File.write(pubspec, "name: sample\n")
       _out, err, status = run_flutter_flow
       expect(status.exitstatus).not_to eq(0)
-      expect(err).to include("No version found in #{pubspec}")
+      expect(err).to include('NoMethodError')
     end
 
-    it 'fails with a clear message when nothing follows the "+"' do
+    it 'crashes with NoMethodError when nothing follows the "+" (current behaviour)' do
       File.write(pubspec, "name: sample\nversion: 1.2.3+\n")
       _out, err, status = run_flutter_flow
       expect(status.exitstatus).not_to eq(0)
-      expect(err).to include("has no version code after '+'")
+      expect(err).to include('NoMethodError')
     end
 
     it 'exits 0 without writing when the version code exceeds 2100000000' do
@@ -1644,32 +1635,34 @@ RSpec.describe 'main.rb as a script' do
       expect(load_xml(manifest_path).root.attribute('android:versionName').value).to eq('7.7.8')
     end
 
-    it 'fails with the manifest path when the versionCode attribute is missing' do
+    # None of these inputs are validated, so each one fails with a low-level
+    # Ruby error rather than a message (current behaviour).
+    it 'crashes with NoMethodError when the versionCode attribute is missing' do
       File.write(manifest_path, MANIFEST_FIXTURE.sub(/android:versionCode="10"\n/, ''))
       _out, err, status = run_smartface_flow
       expect(status.exitstatus).not_to eq(0)
-      expect(err).to include("android:versionCode attribute not found in #{manifest_path}")
+      expect(err).to include('NoMethodError')
     end
 
-    it 'fails with the json path when project.json is missing' do
+    it 'crashes with Errno::ENOENT when project.json is missing' do
       FileUtils.rm_f(json_path)
       _out, err, status = run_smartface_flow
       expect(status.exitstatus).not_to eq(0)
-      expect(err).to include("Smartface project.json not found (#{json_path})")
+      expect(err).to include('Errno::ENOENT')
     end
 
-    it 'fails with the json path when info.version is missing' do
+    it 'crashes with NoMethodError when info.version is missing' do
       File.write(json_path, { 'info' => {} }.to_json)
       _out, err, status = run_smartface_flow
       expect(status.exitstatus).not_to eq(0)
-      expect(err).to include("info.version not found in #{json_path}")
+      expect(err).to include('NoMethodError')
     end
 
-    it 'fails with the manifest path when the manifest is missing' do
+    it 'crashes with Errno::ENOENT when the manifest is missing' do
       FileUtils.rm_f(manifest_path)
       _out, err, status = run_smartface_flow
       expect(status.exitstatus).not_to eq(0)
-      expect(err).to include("XML file not found (#{manifest_path})")
+      expect(err).to include('Errno::ENOENT')
     end
   end
 

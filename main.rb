@@ -1,9 +1,5 @@
 require 'yaml'
-begin
-  require 'colored'
-rescue LoadError
-  # Optional dependency. Without the gem the colour helpers are simply absent.
-end
+require 'colored'
 require 'pathname'
 require 'tempfile'
 require 'fileutils'
@@ -31,46 +27,35 @@ def get_env(key)
   end
 end
 
-def env_file_path
-  env_has_key('AC_ENV_FILE_PATH')
-end
-
 def set_new_env_values(new_version_code, new_version_name)
-  open(env_file_path, 'a') { |f|
+  open(ENV['AC_ENV_FILE_PATH'], 'a') { |f|
     f.puts "AC_ANDROID_NEW_VERSION_CODE=#{new_version_code}"
     f.puts "AC_ANDROID_NEW_VERSION_NAME=#{new_version_name}"
 }
 end
 
 def set_new_env_version_code(new_version_code)
-  open(env_file_path, 'a') { |f|
+  open(ENV['AC_ENV_FILE_PATH'], 'a') { |f|
     f.puts "AC_ANDROID_NEW_VERSION_CODE=#{new_version_code}"
   }
 end
 
 def set_new_env_version_name(new_version_name)
-  open(env_file_path, 'a') { |f|
+  open(ENV['AC_ENV_FILE_PATH'], 'a') { |f|
     f.puts "AC_ANDROID_NEW_VERSION_NAME=#{new_version_name}"
   }
 end
 
 def load_xml(file_path)
-  raise ArgumentError, 'load_xml: file path is missing.' if file_path.nil? || file_path.to_s.empty?
-  raise ArgumentError, "load_xml: XML file not found (#{file_path})." unless File.exist?(file_path)
-
-  REXML::Document.new(File.read(file_path))
+  REXML::Document.new(File.open(file_path))
 end
 
 def is_integer?(str)
-  return false if str.nil?
-
-  /(\D+)/.match(str.to_s).nil?
+  /(\D+)/.match(str).nil?
 end
 
 def is_integer_include_negative?(str)
-  return false if str.nil?
-
-  /\A-?\d+\z/.match?(str.to_s)
+  /\A-?\d+\z/.match?(str)
 end
 
 def get_gradle_path
@@ -100,8 +85,6 @@ def get_flutter_version(pubspec_location)
   rescue StandardError
     raise 'Reading the pubspec failed!'
   end
-  raise "Reading the pubspec failed! #{pubspec_location} is not a valid pubspec.yaml." unless pubspec.is_a?(Hash)
-
   pubspec['version']
 end
 
@@ -191,8 +174,6 @@ def get_gradle_value(file_path, key, flavor)
 end
 
 def calculate_version_number(current_version, strategy, omit_zero, offset)
-  raise ArgumentError, 'calculate_version_number: current version is missing.' if current_version.nil? || current_version.to_s.empty?
-
   if offset.to_i == 0
     return current_version
   end
@@ -221,8 +202,6 @@ def is_version_code_int(version_code)
 end
 
 def check_version_code(new_version_code)
-  abort_with1('versionCode must be integer.') if new_version_code.nil? || new_version_code.to_s.empty?
-
   puts "New Version Code: #{new_version_code.blue}"
 
   if !is_integer_include_negative?(new_version_code)
@@ -240,8 +219,6 @@ def check_version_code(new_version_code)
 end
 
 def check_version_name(new_version_name)
-  abort_with1('versionName is missing.') if new_version_name.nil? || new_version_name.to_s.empty?
-
   version_parts = new_version_name.split('.')
   valid_version = version_parts.all? { |part| is_integer_include_negative?("#{part}") }
   unless valid_version
@@ -251,16 +228,14 @@ def check_version_name(new_version_name)
 end
 
 def calculate_build_number(current_build_number, offset)
-  raise ArgumentError, 'calculate_build_number: current build number is missing.' if current_build_number.nil? || current_build_number.to_s.empty?
-
-  build_array = current_build_number.to_s.split('.').map(&:to_i)
+  build_array = current_build_number.split('.').map(&:to_i)
   build_array[-1] = build_array[-1] + offset.to_i
   build_array.join('.')
 end
 
 if __FILE__ == $PROGRAM_NAME
 
-platform = env_has_key('AC_PLATFORM_TYPE')
+platform = get_env('AC_PLATFORM_TYPE')
 build_number_source = get_env('AC_BUILD_NUMBER_SOURCE')
 build_offset = get_env('AC_BUILD_OFFSET') || 0
 version_number_source = get_env('AC_VERSION_NUMBER_SOURCE')
@@ -273,21 +248,16 @@ if build_number_source.nil? && version_number_source.nil?
   puts "No Version Code and Version Name source specified. Exiting."
   exit 0
 end
-env_file_path
 case platform
 when 'Flutter'
   pubspec_location = get_pubspec_location
   full_version = get_flutter_version(pubspec_location)
-  raise "No version found in #{pubspec_location}. Add a version to your pubspec.yaml (example: 1.0.0+1)" if full_version.nil? || full_version.to_s.empty?
-
-  full_version = full_version.to_s
   puts "Flutter Version: #{full_version.blue}"
   raise 'Wrong version! Add a version to your pubspec.yaml (example: 1.0.0+1)' unless full_version.include?('+')
 
   splitted_version = full_version.split('+')
   version_name = splitted_version[0]
   version_code = splitted_version[1]
-  raise "Wrong version! #{full_version} has no version code after '+' (example: 1.0.0+1)" if version_code.nil? || version_code.empty?
   puts "Current Version Name: #{version_name.blue}"
   puts "Current Version Code: #{version_code.blue}"
   if !is_integer?(version_code) || version_code.to_i > 2_100_000_000
@@ -342,20 +312,12 @@ when 'Smartface'
   android_xml_path = File.join(repository_path, 'config', 'Android', 'AndroidManifest.xml')
   android_xml = load_xml(android_xml_path)
 
-  version_code_attribute = android_xml.root&.attribute('android:versionCode')
-  version_name_attribute = android_xml.root&.attribute('android:versionName')
-  raise "android:versionCode attribute not found in #{android_xml_path}." if version_code_attribute.nil?
-  raise "android:versionName attribute not found in #{android_xml_path}." if version_name_attribute.nil?
-
-  version_code = version_code_attribute.value
-  version_name = version_name_attribute.value
+  version_code = android_xml.root.attribute('android:versionCode').value
+  version_name = android_xml.root.attribute('android:versionName').value
   # load json file and get versıonCode and versionName
   json_path = File.join(repository_path, 'config', 'project.json')
-  raise "Smartface project.json not found (#{json_path})." unless File.exist?(json_path)
-
   json = JSON.parse(File.read(json_path))
-  smartface_version = json.is_a?(Hash) ? json.dig('info', 'version') : nil
-  raise "info.version not found in #{json_path}." if smartface_version.nil?
+  smartface_version = json['info']['version']
   version_name = smartface_version if version_name == '${Version}'
   puts "Smartface Version from config: #{smartface_version}"
   puts "Current Version Code: #{version_code}"
