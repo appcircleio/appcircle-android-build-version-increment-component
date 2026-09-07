@@ -24,6 +24,16 @@ This component bumps the version `versionCode` and `versionName` according to th
 - `$AC_ANDROID_NEW_BUILD_NUMBER`: Changed build number
 - `$AC_ANDROID_NEW_VERSION_NUMBER`: Changed version number
 
+## Running tests
+
+Requires [RSpec](https://rspec.info) gem and Ruby standard library. No Gemfile or Bundler needed.
+
+```bash
+ruby test/test_main.rb
+```
+
+A pass/fail summary and a coverage report are printed at the end of each run.
+
 ## Credits
 
 [Fastlane Android Versioning Plugin](https://github.com/otkmnb2783/fastlane-plugin-android_versioning)
