@@ -233,6 +233,8 @@ def calculate_build_number(current_build_number, offset)
   build_array.join('.')
 end
 
+if __FILE__ == $PROGRAM_NAME
+
 platform = get_env('AC_PLATFORM_TYPE')
 build_number_source = get_env('AC_BUILD_NUMBER_SOURCE')
 build_offset = get_env('AC_BUILD_OFFSET') || 0
@@ -341,3 +343,5 @@ else
   puts 'Platform not supported'
   exit 1
 end
+
+end # if __FILE__ == $PROGRAM_NAME

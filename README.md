@@ -24,6 +24,23 @@ This component bumps the version `versionCode` and `versionName` according to th
 - `$AC_ANDROID_NEW_BUILD_NUMBER`: Changed build number
 - `$AC_ANDROID_NEW_VERSION_NUMBER`: Changed version number
 
+## Running tests
+
+The suite lives in `test/test_main.rb` and is self-executing. It needs Ruby (3.x or newer), the [RSpec](https://rspec.info) gem and the standard library only. There is no Gemfile or Bundler. The `colored` gem is optional; the suite passes with or without it.
+
+```bash
+gem install rspec        # once
+ruby test/test_main.rb
+```
+
+To run a subset, filter by description:
+
+```bash
+ruby test/test_main.rb -e "gradle"
+```
+
+Every test runs against temporary directories and never touches the repository, the network or a real toolchain. A pass/fail summary and a line coverage report for `main.rb` are printed at the end of each run. The coverage report merges the in-process unit tests with the subprocess runs of the script body, so it reflects the whole file. The process exits non-zero when any test fails.
+
 ## Credits
 
 [Fastlane Android Versioning Plugin](https://github.com/otkmnb2783/fastlane-plugin-android_versioning)
