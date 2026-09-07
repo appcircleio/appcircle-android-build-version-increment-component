@@ -26,13 +26,20 @@ This component bumps the version `versionCode` and `versionName` according to th
 
 ## Running tests
 
-Requires [RSpec](https://rspec.info) gem and Ruby standard library. No Gemfile or Bundler needed.
+The suite lives in `test/test_main.rb` and is self-executing. It needs Ruby (3.x or newer), the [RSpec](https://rspec.info) gem and the standard library only. There is no Gemfile or Bundler. The `colored` gem is optional; the suite passes with or without it.
 
 ```bash
+gem install rspec        # once
 ruby test/test_main.rb
 ```
 
-A pass/fail summary and a coverage report are printed at the end of each run.
+To run a subset, filter by description:
+
+```bash
+ruby test/test_main.rb -e "gradle"
+```
+
+Every test runs against temporary directories and never touches the repository, the network or a real toolchain. A pass/fail summary and a line coverage report for `main.rb` are printed at the end of each run. The coverage report merges the in-process unit tests with the subprocess runs of the script body, so it reflects the whole file. The process exits non-zero when any test fails.
 
 ## Credits
 
